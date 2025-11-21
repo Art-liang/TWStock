@@ -1,18 +1,36 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Header from './components/Header';
 import StockSearch from './components/StockSearch';
 import HealthScore from './components/HealthScore';
 import KDChart from './components/KDChart';
 import AnalysisCard from './components/AnalysisCard';
 import FundamentalsGrid from './components/FundamentalsGrid';
+import FavoritesBar from './components/FavoritesBar';
+import FinancialHealthCharts from './components/FinancialHealthCharts';
 import { analyzeStock } from './services/geminiService';
-import { StockAnalysis, KDSignal } from './types';
-import { ArrowUpCircle, ArrowDownCircle, MinusCircle } from 'lucide-react';
+import { StockAnalysis, KDSignal, FavoriteStock } from './types';
+import { ArrowUpCircle, ArrowDownCircle, MinusCircle, Star } from 'lucide-react';
 
 const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<StockAnalysis | null>(null);
+  
+  // Initialize favorites from localStorage
+  const [favorites, setFavorites] = useState<FavoriteStock[]>(() => {
+    try {
+      const saved = localStorage.getItem('twstock-favorites');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.error("Failed to parse favorites from localStorage", e);
+      return [];
+    }
+  });
+
+  // Persist favorites to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('twstock-favorites', JSON.stringify(favorites));
+  }, [favorites]);
 
   const handleSearch = async (ticker: string) => {
     setIsLoading(true);
@@ -26,6 +44,24 @@ const App: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  const toggleFavorite = () => {
+    if (!data) return;
+    
+    const exists = favorites.find(f => f.symbol === data.symbol);
+    if (exists) {
+      setFavorites(prev => prev.filter(f => f.symbol !== data.symbol));
+    } else {
+      setFavorites(prev => [...prev, { symbol: data.symbol, name: data.name }]);
+    }
+  };
+
+  const removeFavorite = (symbol: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setFavorites(prev => prev.filter(f => f.symbol !== symbol));
+  };
+
+  const isFavorite = data ? favorites.some(f => f.symbol === data.symbol) : false;
 
   // Taiwan Market Colors: Red is UP, Green is DOWN
   const getChangeColor = (change: number) => {
@@ -67,6 +103,13 @@ const App: React.FC = () => {
       <main className="container mx-auto px-4 pt-6">
         <StockSearch onSearch={handleSearch} isLoading={isLoading} />
 
+        <FavoritesBar 
+          favorites={favorites} 
+          onSelect={handleSearch} 
+          onRemove={removeFavorite}
+          isLoading={isLoading}
+        />
+
         {error && (
             <div className="max-w-xl mx-auto p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-200 text-center mb-8">
                 {error}
@@ -78,10 +121,20 @@ const App: React.FC = () => {
             {/* Top Info Bar */}
             <div className="bg-cardBg rounded-2xl p-6 border border-slate-700 shadow-2xl flex flex-col md:flex-row justify-between items-center gap-6">
               <div>
-                <h2 className="text-3xl font-bold text-white flex items-center gap-3">
-                  {data.name} 
-                  <span className="text-xl text-slate-500 font-medium">({data.symbol})</span>
-                </h2>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-3xl font-bold text-white flex items-center gap-3">
+                    {data.name} 
+                    <span className="text-xl text-slate-500 font-medium">({data.symbol})</span>
+                  </h2>
+                  <button 
+                    onClick={toggleFavorite}
+                    className={`p-2 rounded-full transition-all border ${isFavorite ? 'bg-yellow-500/10 border-yellow-500/50 text-yellow-400' : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-white hover:border-slate-500'}`}
+                    title={isFavorite ? "Remove from Watchlist" : "Add to Watchlist"}
+                  >
+                    <Star className={`w-5 h-5 ${isFavorite ? 'fill-yellow-400' : ''}`} />
+                  </button>
+                </div>
+                
                 <div className="flex items-baseline gap-4 mt-2">
                   <span className={`text-4xl font-mono font-bold ${getChangeColor(data.changePercentage)}`}>
                     {data.currentPrice}
@@ -95,10 +148,21 @@ const App: React.FC = () => {
               {renderKDBadge(data.kdSignal)}
             </div>
 
-            {/* Fundamental Metrics Grid (New) */}
+            {/* Fundamental Metrics Grid */}
             <FundamentalsGrid data={data.fundamentals} valuation={data.valuationStatus} />
 
-            {/* Charts & Metrics Grid */}
+            {/* New: Financial Health & Charts Row */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-3">
+                    <FinancialHealthCharts 
+                        revenueHistory={data.revenueHistory} 
+                        epsHistory={data.epsHistory}
+                        summary={data.financialSummary}
+                    />
+                </div>
+            </div>
+
+            {/* Technical Charts & Health Score Row */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-auto">
               <div className="lg:col-span-2">
                 <KDChart data={data.chartData} />
